@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -23,7 +22,7 @@ function Register() {
       toast.success("Registrado correctamente. Revisa tu email 📨");
       navigate("login")
     } catch (error) {
-      const messages = err.response?.data?.error;
+      const messages = error.response?.data?.error;
       if(Array.isArray(messages)){
               messages.forEach((msg) => toast.error(msg))
             } else {
