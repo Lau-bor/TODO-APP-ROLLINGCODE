@@ -1,9 +1,10 @@
-import { useEffect, useRef } from "react";
-import {Chart, registerables} from "chart.js";
+import React, { useEffect, useRef, useState } from 'react';
+import * as Chart from 'chart.js';
+import { registerables } from 'chart.js';
 
-Chart.register(...registerables);
+Chart.Chart.register(...registerables);
 
-const getLastSixMonthsData = (tasks) => {
+const getLastSixMonthsData = (tasks, useCreatedAt = true) => {
     const now = new Date();
     const monthsData = {};
 
@@ -13,10 +14,13 @@ const getLastSixMonthsData = (tasks) => {
         monthsData[key] = 0;
     }
 
-    tasks.forEach(({createdAt}) => {
-        const taskDate = new Date(createdAt);
-        const key = taskDate.toLocaleDateString('es-ES', {month:"short"})
-        if(monthsData[key] !== undefined) monthsData[key]++;
+    tasks.forEach((task) => {
+    const dateToUse = useCreatedAt ? task.createdAt : task.dueDate;
+    if (!dateToUse) return;
+    
+    const taskDate = new Date(dateToUse);
+    const key = taskDate.toLocaleDateString('es-ES', { month: 'short' });
+    if (monthsData[key] !== undefined) monthsData[key]++;
     });
 
     return monthsData;
@@ -24,33 +28,47 @@ const getLastSixMonthsData = (tasks) => {
 }
 
 const getFileStats = (tasks) => {
-    const fileTypes = {};
-    let conArchivos = 0, totalArchivos = 0;
+  const fileTypes = {};
+  let conArchivos = 0, totalArchivos = 0;
 
-    tasks.forEach(task => {
-        const files = task.files || []
-        if(files.length) conArchivos++;
-        totalArchivos += files.length;
-        
+  tasks.forEach(task => {
+    const files = task.files || [];
+    if (files.length) conArchivos++;
+    totalArchivos += files.length;
+
     files.forEach(file => {
-    let type = file.mimetype?.split("/")[0];
-    if (!type && file.name) {
-        const ext = file.name.split('.').pop().toLowerCase();
-        if (["jpg", "jpeg", "png", "gif", "bmp", "webp"].includes(ext)) type = "image";
-        else if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx"].includes(ext)) type = "application";
-        else if (["txt", "md", "csv"].includes(ext)) type = "text";
-        else if (["mp4", "avi", "mov", "wmv"].includes(ext)) type = "video";
-    }
-    const map = {image: 'Imágenes', application: "Documentos", text: "Texto", video: "Videos"};
-    const display = map[type] || "otros";
-    fileTypes[display] = (fileTypes[display] || 0) + 1 ;
-    });
-    });
+      // Detectar tipo de archivo por extensión del nombre
+      const fileName = file.name || '';
+      const extension = fileName.split('.').pop()?.toLowerCase() || '';
+      let displayType = 'Otros';
 
-    const topFileType = Object.entries(fileTypes).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-    return {conArchivos, totalArchivos, topFileType}
+      if (extension === 'pdf') {
+        displayType = 'PDF';
+      } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp'].includes(extension)) {
+        displayType = 'Imágenes';
+      } else if (['mp4', 'avi', 'mov', 'wmv', 'flv', 'webm', 'mkv'].includes(extension)) {
+        displayType = 'Videos';
+      } else if (['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a'].includes(extension)) {
+        displayType = 'Audio';
+      } else if (['doc', 'docx'].includes(extension)) {
+        displayType = 'Documentos Word';
+      } else if (['xls', 'xlsx', 'csv'].includes(extension)) {
+        displayType = 'Hojas de Cálculo';
+      } else if (['ppt', 'pptx'].includes(extension)) {
+        displayType = 'Presentaciones';
+      } else if (['txt', 'md', 'json', 'xml', 'html', 'css', 'js'].includes(extension)) {
+        displayType = 'Texto';
+      } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(extension)) {
+        displayType = 'Archivos Comprimidos';
+      }
 
-}
+      fileTypes[displayType] = (fileTypes[displayType] || 0) + 1;
+    });
+  });
+
+  const top = Object.entries(fileTypes).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
+  return { conArchivos, totalArchivos, topFileType: top, fileTypes };
+};
 
 const StatCard = ({value, label, color}) => (
      <div className={`bg-${color}-50 p-4 rounded-lg text-center`}>
@@ -60,39 +78,49 @@ const StatCard = ({value, label, color}) => (
 )
 
 
-function TaskStatsModal({tasks = [], onClose}) {
+const TaskStatsModal = ({ tasks = [], onClose }) => {
+  const chartRef = useRef(null);
+  const chartInstance = useRef(null);
+  const [chartMode, setChartMode] = useState('created'); // 'created' o 'due'
 
-    const chartRef = useRef(null);
-    const chartInstance = useRef(null);
+  useEffect(() => {
+    if (!tasks.length) return;
+    const monthsData = getLastSixMonthsData(tasks, chartMode === 'created');
+    const ctx = chartRef.current.getContext('2d');
 
-    useEffect(() =>{
-        if(!tasks.length) return
-        const monthsData = getLastSixMonthsData(tasks)
-        const ctx = chartRef.current.getContext("2d");
+    chartInstance.current?.destroy();
 
-        chartInstance.current?.destroy();
-
-        chartInstance.current = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: Object.keys(monthsData),
-                datasets: [{
-                    label: 'Tareas',
-                    data: Object.values(monthsData),
-                    backgroundColor: '#3B82F6',
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {legend: {display: false}},
-                scales:{y: {beginAtZero: true, ticks:{stepSize: 1}}}
+    chartInstance.current = new Chart.Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: Object.keys(monthsData),
+        datasets: [{
+          label: chartMode === 'created' ? 'Tareas Creadas' : 'Tareas con Vencimiento',
+          data: Object.values(monthsData),
+          backgroundColor: chartMode === 'created' ? '#3B82F6' : '#10B981',
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { 
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (context) => {
+                const month = context[0].label;
+                return `${month} - ${chartMode === 'created' ? 'Creadas' : 'Vencen'}`;
+              }
             }
-        })
-        return () => chartInstance.current?.destroy();
+          }
+        },
+        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+      }
+    });
 
-    }, [tasks])
+    return () => chartInstance.current?.destroy();
+  }, [tasks, chartMode]);
 
     if(!tasks.length){
       return(
@@ -111,35 +139,92 @@ function TaskStatsModal({tasks = [], onClose}) {
     const now = new Date();
     const thisMonth = tasks.filter(({createdAt}) => {
         const d = new Date(createdAt);
-        return d.getMonth() === now.getMonth && d.getFullYear() === now.getFullYear() 
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     }).length;
 
-    const {conArchivos, totalArchivos, topFileType} = getFileStats(tasks)
+    // Tareas vencidas
+    const overdueTasks = tasks.filter(({ dueDate }) => {
+    if (!dueDate) return false;
+    return new Date(dueDate) < now;
+  }).length;
 
 
-  return (
+    const {conArchivos, totalArchivos, topFileType, fileTypes} = getFileStats(tasks);
+
+
+   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+      <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-xl font-bold text-gray-800">Estadísticas de Tareas</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-xl">✕</button>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <StatCard value={tasks.length} label="Total" color="blue" />
-          <StatCard value={thisMonth} label="Este Mes" color="green" />
+
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <StatCard value={tasks.length} label="Total Tareas" color="blue" />
+          <StatCard value={thisMonth} label="Creadas Este Mes" color="green" />
+          <StatCard value={overdueTasks} label="Vencidas" color="red" />
           <StatCard value={conArchivos} label="Con Archivos" color="purple" />
           <StatCard value={totalArchivos} label="Total Archivos" color="orange" />
         </div>
-        <div className="mb-4">
-          <h3 className="text-lg font-semibold text-gray-700 mb-3">Últimos 6 Meses</h3>
+
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold text-gray-700">Últimos 6 Meses</h3>
+            <div className="flex space-x-2">
+              <button
+                onClick={() => setChartMode('created')}
+                className={`px-3 py-1 rounded text-sm ${
+                  chartMode === 'created' 
+                    ? 'bg-blue-500 text-white' 
+                    : 'bg-gray-200 text-gray-700'
+                }`}
+              >
+                Creadas
+              </button>
+              <button
+                onClick={() => setChartMode('due')}
+                className={`px-3 py-1 rounded text-sm ${
+                  chartMode === 'due' 
+                    ? 'bg-green-500 text-white' 
+                    : 'bg-gray-200 text-gray-700'
+                }`}
+              >
+                Vencimientos
+              </button>
+            </div>
+          </div>
           <div className="h-48"><canvas ref={chartRef}></canvas></div>
         </div>
-        <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-700">
-          <strong>Tipo de archivo más común:</strong> {topFileType}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h4 className="font-semibold text-gray-700 mb-2">Archivos</h4>
+            <div className="text-sm text-gray-600">
+              <p><strong>Tipo más común:</strong> {topFileType}</p>
+              <div className="mt-2">
+                {Object.entries(fileTypes).map(([type, count]) => (
+                  <div key={type} className="flex justify-between">
+                    <span>{type}:</span>
+                    <span>{count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h4 className="font-semibold text-gray-700 mb-2">Resumen</h4>
+            <div className="text-sm text-gray-600">
+              <p><strong>Promedio archivos por tarea:</strong> {(totalArchivos / tasks.length).toFixed(1)}</p>
+              <p><strong>% tareas con archivos:</strong> {((conArchivos / tasks.length) * 100).toFixed(1)}%</p>
+              <p><strong>% tareas vencidas:</strong> {((overdueTasks / tasks.length) * 100).toFixed(1)}%</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default TaskStatsModal
+export default TaskStatsModal;
